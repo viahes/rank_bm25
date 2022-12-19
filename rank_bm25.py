@@ -8,15 +8,16 @@ from multiprocessing import Pool, cpu_count
 All of these algorithms have been taken from the paper:
 Trotmam et al, Improvements to BM25 and Language Models Examined
 
-Here we implement all the BM25 variations mentioned. 
+Here we implement all the BM25 variations mentioned.
 """
 
 
 class BM25:
-    def __init__(self, corpus, tokenizer=None):
+    def __init__(self, corpus, tokenizer=None, vocabulary=None):
         self.corpus_size = 0
         self.avgdl = 0
         self.doc_freqs = []
+        self.nd = {}
         self.idf = {}
         self.doc_len = []
         self.tokenizer = tokenizer
@@ -24,12 +25,22 @@ class BM25:
         if tokenizer:
             corpus = self._tokenize_corpus(corpus)
 
-        nd = self._initialize(corpus)
-        self._calc_idf(nd)
+        self._calc_frequencies(corpus)
+        if vocabulary is None:
+            vocabulary = set(self.nd.keys())
+        self._calc_idf(vocabulary)
 
-    def _initialize(self, corpus):
-        nd = {}  # word -> number of documents with word
-        num_doc = 0
+    def _calc_frequencies(self, corpus, update=False):
+        if update:
+            nd = self.nd
+            num_doc = self.avgdl * self.corpus_size
+            corpus_size = self.corpus_size
+
+        else:
+            nd = {}  # word -> number of documents with word
+            num_doc = 0
+            corpus_size = 0
+
         for document in corpus:
             self.doc_len.append(len(document))
             num_doc += len(document)
@@ -47,18 +58,30 @@ class BM25:
                 except KeyError:
                     nd[word] = 1
 
-            self.corpus_size += 1
+            corpus_size += 1
 
-        self.avgdl = num_doc / self.corpus_size
-        return nd
+        self.corpus_size = corpus_size
+        self.avgdl = num_doc / corpus_size
+        self.nd = nd
 
     def _tokenize_corpus(self, corpus):
         pool = Pool(cpu_count())
         tokenized_corpus = pool.map(self.tokenizer, corpus)
         return tokenized_corpus
 
-    def _calc_idf(self, nd):
+    def _calc_idf(self, vocabulary):
         raise NotImplementedError()
+
+    def add_documents(self, documents, update_vocabulary=False):
+        if not update_vocabulary:
+            vocabulary = set(self.nd.keys())
+            self._calc_frequencies(documents, True)
+            self._calc_idf(vocabulary)
+
+        else:
+            self._calc_frequencies(documents, True)
+            vocabulary = set(self.nd.keys())
+            self._calc_idf(vocabulary)
 
     def get_scores(self, query):
         raise NotImplementedError()
@@ -82,7 +105,7 @@ class BM25Okapi(BM25):
         self.epsilon = epsilon
         super().__init__(corpus, tokenizer)
 
-    def _calc_idf(self, nd):
+    def _calc_idf(self, vocabulary):
         """
         Calculates frequencies of terms in documents and in corpus.
         This algorithm sets a floor on the idf values to eps * average_idf
@@ -92,7 +115,10 @@ class BM25Okapi(BM25):
         # collect words with negative idf to set them a special epsilon value.
         # idf can be negative if word is contained in more than half of documents
         negative_idfs = []
-        for word, freq in nd.items():
+        for word, freq in self.nd.items():
+            if word not in vocabulary:
+                continue
+
             idf = math.log(self.corpus_size - freq + 0.5) - math.log(freq + 0.5)
             self.idf[word] = idf
             idf_sum += idf
@@ -142,8 +168,11 @@ class BM25L(BM25):
         self.delta = delta
         super().__init__(corpus, tokenizer)
 
-    def _calc_idf(self, nd):
-        for word, freq in nd.items():
+    def _calc_idf(self, vocabulary):
+        for word, freq in self.nd.items():
+            if word not in vocabulary:
+                continue
+
             idf = math.log(self.corpus_size + 1) - math.log(freq + 0.5)
             self.idf[word] = idf
 
@@ -180,8 +209,11 @@ class BM25Plus(BM25):
         self.delta = delta
         super().__init__(corpus, tokenizer)
 
-    def _calc_idf(self, nd):
-        for word, freq in nd.items():
+    def _calc_idf(self, vocabulary):
+        for word, freq in self.nd.items():
+            if word not in vocabulary:
+                continue
+
             idf = math.log((self.corpus_size + 1) / freq)
             self.idf[word] = idf
 
