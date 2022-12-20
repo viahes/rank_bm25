@@ -137,7 +137,10 @@ class BM25:
 
 
 class BM25Okapi(BM25):
-    def __init__(self, corpus, tokenizer=None, k1=1.5, b=0.75, epsilon=0.25):
+    def __init__(
+        self, corpus, tokenizer=None, vocabulary=None, calculate_idf=True,
+        k1=1.5, b=0.75, epsilon=0.25
+    ):
         self.k1 = k1
         self.b = b
         self.epsilon = epsilon
@@ -199,12 +202,15 @@ class BM25Okapi(BM25):
 
 
 class BM25L(BM25):
-    def __init__(self, corpus, tokenizer=None, k1=1.5, b=0.75, delta=0.5):
+    def __init__(
+        self, corpus, tokenizer=None, vocabulary=None, calculate_idf=True,
+        k1=1.5, b=0.75, delta=0.5
+    ):
         # Algorithm specific parameters
         self.k1 = k1
         self.b = b
         self.delta = delta
-        super().__init__(corpus, tokenizer)
+        super().__init__(corpus, tokenizer, vocabulary, calculate_idf)
 
     def _calc_idf(self, vocabulary):
         for word, freq in self.nd.items():
@@ -240,12 +246,15 @@ class BM25L(BM25):
 
 
 class BM25Plus(BM25):
-    def __init__(self, corpus, tokenizer=None, k1=1.5, b=0.75, delta=1):
+    def __init__(
+        self, corpus, tokenizer=None, vocabulary=None, calculate_idf=True,
+        k1=1.5, b=0.75, delta=1
+    ):
         # Algorithm specific parameters
         self.k1 = k1
         self.b = b
         self.delta = delta
-        super().__init__(corpus, tokenizer)
+        super().__init__(corpus, tokenizer, vocabulary, calculate_idf)
 
     def _calc_idf(self, vocabulary):
         for word, freq in self.nd.items():
