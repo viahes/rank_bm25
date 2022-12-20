@@ -13,7 +13,9 @@ Here we implement all the BM25 variations mentioned.
 
 
 class BM25:
-    def __init__(self, corpus, tokenizer=None, vocabulary=None):
+    def __init__(
+        self, corpus, tokenizer=None, vocabulary=None, calculate_idf=True
+    ):
         self.corpus_size = 0
         self.avgdl = 0
         self.doc_freqs = []
@@ -21,16 +23,27 @@ class BM25:
         self.idf = {}
         self.doc_len = []
         self.tokenizer = tokenizer
+        self.modified = False
 
         if tokenizer:
             corpus = self._tokenize_corpus(corpus)
 
-        self._calc_frequencies(corpus)
+        new_vocabulary = self._calc_frequencies(corpus)
+
         if vocabulary is None:
-            vocabulary = set(self.nd.keys())
-        self._calc_idf(vocabulary)
+            vocabulary = new_vocabulary 
+
+        self.vocabulary = vocabulary
+
+        if calculate_idf:
+            self._calc_idf(vocabulary)
+
+        else:
+            self.modified = True
 
     def _calc_frequencies(self, corpus, update=False):
+        new_vocabulary = set()
+
         if update:
             nd = self.nd
             num_doc = self.avgdl * self.corpus_size
@@ -49,7 +62,10 @@ class BM25:
             for word in document:
                 if word not in frequencies:
                     frequencies[word] = 0
+                    new_vocabulary.add(word)
+
                 frequencies[word] += 1
+
             self.doc_freqs.append(frequencies)
 
             for word, freq in frequencies.items():
@@ -64,29 +80,51 @@ class BM25:
         self.avgdl = num_doc / corpus_size
         self.nd = nd
 
+        return new_vocabulary
+
     def _tokenize_corpus(self, corpus):
         pool = Pool(cpu_count())
         tokenized_corpus = pool.map(self.tokenizer, corpus)
         return tokenized_corpus
 
+    def add_documents(
+        self, documents, update_vocabulary=False, calculate_idf=True
+    ):
+        if not update_vocabulary:
+            self._calc_frequencies(documents, True)
+
+        else:
+            new_vocabulary = self._calc_frequencies(documents, True)
+            self.vocabulary = self.vocabulary.union(new_vocabulary)
+
+        if calculate_idf:
+            self._calc_idf(self.vocabulary)
+            self.modified = False
+
+        else:
+            self.modified = True
+
+    def get_scores(self, query):
+        if self.modified:
+            self._calc_idf(self.vocabulary)
+            self.modified = False
+
+        return self._get_scores(query)
+
+    def get_batch_scores(self, query, doc_ids):
+        if self.modified:
+            self._calc_idf(self.vocabulary)
+            self.modified = False
+
+        return self._get_batch_scores(query, doc_ids)
+
     def _calc_idf(self, vocabulary):
         raise NotImplementedError()
 
-    def add_documents(self, documents, update_vocabulary=False):
-        if not update_vocabulary:
-            vocabulary = set(self.nd.keys())
-            self._calc_frequencies(documents, True)
-            self._calc_idf(vocabulary)
-
-        else:
-            self._calc_frequencies(documents, True)
-            vocabulary = set(self.nd.keys())
-            self._calc_idf(vocabulary)
-
-    def get_scores(self, query):
+    def _get_scores(self, query):
         raise NotImplementedError()
 
-    def get_batch_scores(self, query, doc_ids):
+    def _get_batch_scores(self, query, doc_ids):
         raise NotImplementedError()
 
     def get_top_n(self, query, documents, n=5):
@@ -130,7 +168,7 @@ class BM25Okapi(BM25):
         for word in negative_idfs:
             self.idf[word] = eps
 
-    def get_scores(self, query):
+    def _get_scores(self, query):
         """
         The ATIRE BM25 variant uses an idf function which uses a log(idf) score. To prevent negative idf scores,
         this algorithm also adds a floor to the idf value of epsilon.
@@ -146,7 +184,7 @@ class BM25Okapi(BM25):
                                                (q_freq + self.k1 * (1 - self.b + self.b * doc_len / self.avgdl)))
         return score
 
-    def get_batch_scores(self, query, doc_ids):
+    def _get_batch_scores(self, query, doc_ids):
         """
         Calculate bm25 scores between query and subset of all docs
         """
@@ -176,7 +214,7 @@ class BM25L(BM25):
             idf = math.log(self.corpus_size + 1) - math.log(freq + 0.5)
             self.idf[word] = idf
 
-    def get_scores(self, query):
+    def _get_scores(self, query):
         score = np.zeros(self.corpus_size)
         doc_len = np.array(self.doc_len)
         for q in query:
@@ -186,7 +224,7 @@ class BM25L(BM25):
                      (self.k1 + ctd + self.delta)
         return score
 
-    def get_batch_scores(self, query, doc_ids):
+    def _get_batch_scores(self, query, doc_ids):
         """
         Calculate bm25 scores between query and subset of all docs
         """
@@ -217,7 +255,7 @@ class BM25Plus(BM25):
             idf = math.log((self.corpus_size + 1) / freq)
             self.idf[word] = idf
 
-    def get_scores(self, query):
+    def _get_scores(self, query):
         score = np.zeros(self.corpus_size)
         doc_len = np.array(self.doc_len)
         for q in query:
@@ -226,7 +264,7 @@ class BM25Plus(BM25):
                                                (self.k1 * (1 - self.b + self.b * doc_len / self.avgdl) + q_freq))
         return score
 
-    def get_batch_scores(self, query, doc_ids):
+    def _get_batch_scores(self, query, doc_ids):
         """
         Calculate bm25 scores between query and subset of all docs
         """
