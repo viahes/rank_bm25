@@ -88,13 +88,14 @@ class BM25:
         return tokenized_corpus
 
     def add_documents(
-        self, documents, update_vocabulary=False, calculate_idf=True
+        self, documents, new_vocabulary=None, calculate_idf=True
     ):
-        if not update_vocabulary:
-            self._calc_frequencies(documents, True)
+        if new_vocabulary is None:
+            new_vocabulary = self._calc_frequencies(documents, True)
+            self.vocabulary = self.vocabulary.union(new_vocabulary)
 
         else:
-            new_vocabulary = self._calc_frequencies(documents, True)
+            self._calc_frequencies(documents, True)
             self.vocabulary = self.vocabulary.union(new_vocabulary)
 
         if calculate_idf:
